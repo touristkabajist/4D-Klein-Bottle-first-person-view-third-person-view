@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4D Klein Bottle — 3D Projection</title>
+<style>
+  :root {
+    --bg: rgba(14, 18, 30, 0.78);
+    --line: rgba(140, 160, 210, 0.22);
+    --text: #dfe6f5;
+    --dim: #8f9bb8;
+    --accent: #7fb2ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070d; color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  canvas { display: block; touch-action: none; }
+
+  #panel {
+    position: fixed; top: 14px; left: 14px; width: 288px; max-height: calc(100vh - 90px); overflow-y: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 12px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 10px 40px rgba(0,0,0,.45);
+    user-select: none; z-index: 10;
+  }
+  #panel.collapsed > :not(header) { display: none; }
+  #panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  #panel h1 { font-size: 15px; margin: 0; letter-spacing: .03em; font-weight: 650; }
+  #collapse { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px;
+    width: 24px; height: 22px; cursor: pointer; padding: 0; }
+  .section { margin-top: 12px; }
+  .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px;
+    display: flex; justify-content: space-between; }
+  .label span { color: var(--text); text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; background: transparent; color: var(--dim); border: 0; padding: 7px 4px; cursor: pointer;
+    font: inherit; font-size: 12px; border-right: 1px solid var(--line); }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { color: var(--text); background: rgba(127,178,255,.08); }
+  .seg button.on { background: rgba(127,178,255,.22); color: #fff; }
+  .row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+  input[type=checkbox] { accent-color: var(--accent); margin: 0; }
+  .formula { color: var(--dim); font-size: 11.5px; font-family: ui-monospace, Consolas, monospace; margin-top: 2px; }
+  .axes { display: flex; gap: 6px; }
+  .ax { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0;
+    border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 700; }
+  .ax.off { opacity: .4; }
+  .note { margin-top: 7px; color: var(--dim); font-size: 11.5px; min-height: 32px; }
+  .note b { color: var(--text); font-weight: 600; }
+  .legend { height: 10px; border-radius: 5px; margin: 4px 0 2px;
+    background: linear-gradient(90deg, #120f08, #6b5a33, #ffe7a8); }
+  .legend-txt { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; }
+  .angle { display: grid; grid-template-columns: 26px 1fr 42px; align-items: center; gap: 6px; font-size: 12px; }
+  .angle output { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  details[open] summary { margin-bottom: 6px; }
+  #reset { width: 100%; margin-top: 14px; padding: 8px; border-radius: 8px; border: 1px solid rgba(127,178,255,.45);
+    background: rgba(127,178,255,.12); color: #fff; font: inherit; cursor: pointer; }
+  #reset:hover { background: rgba(127,178,255,.25); }
+  .help { margin-top: 12px; color: var(--dim); font-size: 11.5px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .help kbd { font-family: inherit; color: var(--text); background: rgba(255,255,255,.07); border: 1px solid var(--line);
+    border-radius: 4px; padding: 0 4px; font-size: 11px; }
+  .help div { margin: 2px 0; }
+
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .axis-label { position: absolute; font-weight: 800; font-size: 15px; transform: translate(7px, -50%);
+    text-shadow: 0 0 6px #000, 0 0 2px #000; }
+  #caption {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 6; pointer-events: none;
+    padding: 9px 18px; border-radius: 999px; background: rgba(8, 10, 18, .65); border: 1px solid var(--line);
+    font-size: 14.5px; letter-spacing: .02em; color: #e8ecf8; text-align: center; max-width: calc(100vw - 30px);
+  }
+  #hud { position: fixed; right: 14px; top: 14px; color: var(--dim); font-size: 11.5px; text-align: right;
+    pointer-events: none; z-index: 6; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <header>
+    <h1>4D Klein Bottle</h1>
+    <button id="collapse" title="Collapse panel">–</button>
+  </header>
+
+  <div class="section">
+    <div class="label">View</div>
+    <div class="seg" data-group="view">
+      <button data-v="first">First-person</button>
+      <button data-v="third">Third-person</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="label">Render mode</div>
+    <div class="seg" data-group="render">
+      <button data-v="wire">Wireframe</button>
+      <button data-v="solid">Solid</button>
+      <button data-v="trans">Translucent</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <label class="row"><input type="checkbox" id="auto"> Auto 4D rotation</label>
+  </div>
+
+  <div class="section">
+    <div class="label">Projection distance D (W) <span id="dVal"></span></div>
+    <input type="range" id="dist" min="2" max="12" step="0.05">
+    <div class="formula">s = D / (D − w) &nbsp;·&nbsp; (X,Y,Z) = (x,y,z)·s</div>
+  </div>
+
+  <div class="section">
+    <div class="label">Dimensions</div>
+    <div class="axes" id="axes"></div>
+    <div class="note" id="projMode"></div>
+  </div>
+
+  <div class="section">
+    <div class="label">Color</div>
+    <div class="formula">XYZ → RGB &nbsp;·&nbsp; W → brightness</div>
+    <div class="legend"></div>
+    <div class="legend-txt"><span>w = −1.5 (dark)</span><span>w = +1.5 (bright)</span></div>
+  </div>
+
+  <div class="section" id="fpOpts">
+    <div class="label">Fly-through speed <span id="spdVal"></span></div>
+    <input type="range" id="speed" min="0" max="1.5" step="0.01">
+  </div>
+
+  <div class="section">
+    <details open>
+      <summary>4D rotation angles</summary>
+      <div id="angles"></div>
+    </details>
+  </div>
+
+  <button id="reset">Reset</button>
+
+  <div class="help">
+    <div><kbd>Left drag</kbd> orbit camera (look around in first-person)</div>
+    <div><kbd>Right drag</kbd> / <kbd>Shift</kbd>+drag: rotate in 4D — horizontal XW, vertical YW</div>
+    <div>…with <kbd>Ctrl</kbd>/<kbd>Alt</kbd> held: horizontal ZW</div>
+    <div><kbd>Wheel</kbd> zoom (field of view in first-person)</div>
+    <div><kbd>Space</kbd> pause fly-through &nbsp; <kbd>V</kbd> switch view</div>
+  </div>
+</div>
+
+<div id="labels"></div>
+<div id="hud"></div>
+<div id="caption">We cannot see 4D directly. This is the 3D projection of a 4D Klein bottle.</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ------------------------------------------------------------------ *
+ *  Constants & state
+ * ------------------------------------------------------------------ */
+const TAU = Math.PI * 2;
+const R_MAJOR = 1.0, R_MINOR = 0.5, EXT = R_MAJOR + R_MINOR;
+const NU = 180, NV = 48;                       // u / v resolution
+const ROW = NV + 1, VCOUNT = (NU + 1) * ROW;
+const PLANES = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
+const PLANE_NAMES = ['XY', 'XZ', 'XW', 'YZ', 'YW', 'ZW'];
+const XW = 2, YW = 4, ZW = 5;
+const AXIS_NAMES = ['X', 'Y', 'Z', 'W'];
+const AXIS_COLORS = ['#ff6060', '#5fe37a', '#62a4ff', '#ffd24a'];
+const MORPH_TIME = 0.7;                        // seconds for projection-change transitions
+
+const DEFAULTS = {
+  angles: [0, 0, 0.55, 0, 0.3, 0.15],
+  D: 3.5, vis: [true, true, true, true], auto: true, view: 'third', render: 'solid',
+};
+const ORBIT_DEFAULT = { theta: 0.85, phi: 1.12, radius: 5.4 };
+const FP_DEFAULT = { t: 0, speed: 0.35, yaw: 0, pitch: 0, fov: 100, paused: false };
+
+const state = structuredClone(DEFAULTS);
+const orbit = { ...ORBIT_DEFAULT };
+const fp = { ...FP_DEFAULT };
+
+/* ------------------------------------------------------------------ *
+ *  4D math
+ * ------------------------------------------------------------------ */
+// Klein bottle embedded in R^4 (no self-intersection):
+//   x = (R + r cos v) cos u
+//   y = (R + r cos v) sin u
+//   z = r sin v cos(u/2)
+//   w = r sin v sin(u/2)          u, v ∈ [0, 2π]
+const base = new Float32Array(VCOUNT * 4);
+for (let i = 0; i <= NU; i++) {
+  const u = (i / NU) * TAU;
+  for (let j = 0; j <= NV; j++) {
+    const v = (j / NV) * TAU;
+    const k = (i * ROW + j) * 4;
+    base[k]     = (R_MAJOR + R_MINOR * Math.cos(v)) * Math.cos(u);
+    base[k + 1] = (R_MAJOR + R_MINOR * Math.cos(v)) * Math.sin(u);
+    base[k + 2] = R_MINOR * Math.sin(v) * Math.cos(u / 2);
+    base[k + 3] = R_MINOR * Math.sin(v) * Math.sin(u / 2);
+  }
+}
+
+// Row-major 4x4 matrix = R_ZW · R_YW · R_YZ · R_XW · R_XZ · R_XY
+function buildMatrix(angles) {
+  const M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  for (let p = 0; p < 6; p++) {
+    const [a, b] = PLANES[p];
+    const c = Math.cos(angles[p]), s = Math.sin(angles[p]);
+    for (let col = 0; col < 4; col++) {
+      const ma = M[a * 4 + col], mb = M[b * 4 + col];
+      M[a * 4 + col] = c * ma - s * mb;
+      M[b * 4 + col] = s * ma + c * mb;
+    }
+  }
+  return M;
+}
+
+const P4 = new Float64Array(4);   // scratch: rotated 4D point
+const OA = new Float64Array(3), OB = new Float64Array(3), OUT = new Float64Array(3);
+
+function rotateInto(M, x, y, z, w) {
+  P4[0] = M[0] * x + M[1] * y + M[2] * z + M[3] * w;
+  P4[1] = M[4] * x + M[5] * y + M[6] * z + M[7] * w;
+  P4[2] = M[8] * x + M[9] * y + M[10] * z + M[11] * w;
+  P4[3] = M[12] * x + M[13] * y + M[14] * z + M[15] * w;
+}
+
+// A projection config says which 4D coordinate feeds each 3D display slot,
+// and whether the W-perspective divide is applied.
+function computeConfig(vis) {
+  const slots = [vis[0] ? 0 : -1, vis[1] ? 1 : -1, vis[2] ? 2 : -1];
+  const hidden = [0, 1, 2].filter(i => !vis[i]);
+  let perspective = false;
+  if (vis[3]) {
+    if (hidden.length === 0) perspective = true;   // full 4D → 3D perspective
+    else slots[hidden[0]] = 3;                     // W re-projected into the free slot
+  }
+  return { slots, perspective };
+}
+
+let cfgCur = computeConfig(state.vis), cfgPrev = cfgCur, morph = 1;
+
+function projectCfg(cfg, o) {
+  const s = cfg.perspective ? state.D / Math.max(state.D - P4[3], 0.05) : 1;
+  for (let k = 0; k < 3; k++) {
+    const sl = cfg.slots[k];
+    o[k] = sl < 0 ? 0 : P4[sl] * s;
+  }
+}
+const ease = t => t * t * (3 - 2 * t);
+// Projects P4 into OUT, blending between the previous and current config during transitions
+function project() {
+  projectCfg(cfgCur, OB);
+  if (morph < 1) {
+    projectCfg(cfgPrev, OA);
+    const e = ease(morph);
+    for (let k = 0; k < 3; k++) OUT[k] = OA[k] + (OB[k] - OA[k]) * e;
+  } else {
+    OUT[0] = OB[0]; OUT[1] = OB[1]; OUT[2] = OB[2];
+  }
+}
+const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
+const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+
+/* ------------------------------------------------------------------ *
+ *  Three.js scene
+ * ------------------------------------------------------------------ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070d);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 400);
+scene.add(camera);
+
+scene.add(new THREE.HemisphereLight(0xcfdcff, 0x1a1626, 1.15));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.7);
+keyLight.position.set(0.6, 0.8, 0.3);   // attached to camera → headlight-like
+camera.add(keyLight);
+camera.add(keyLight.target);
+keyLight.target.position.set(0, 0, -1);
+
+// Starfield (gives orientation, especially in first-person)
+{
+  const N = 2500, sp = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(80 + Math.random() * 120);
+    sp.set([v.x, v.y, v.z], i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x7d8bb0, size: 1.6, sizeAttenuation: false })));
+}
+
+// Klein bottle geometry (shared position/color buffers for surface and wireframe)
+const positions = new Float32Array(VCOUNT * 3);
+const colors = new Float32Array(VCOUNT * 3);
+const posAttr = new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage);
+const colAttr = new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage);
+
+const triIdx = [];
+for (let i = 0; i < NU; i++) {
+  for (let j = 0; j < NV; j++) {
+    const a = i * ROW + j, b = (i + 1) * ROW + j, c = (i + 1) * ROW + j + 1, d = i * ROW + j + 1;
+    triIdx.push(a, b, d, b, c, d);
+  }
+}
+const lineIdx = [];
+for (let j = 0; j < NV; j += 2) for (let i = 0; i < NU; i++) lineIdx.push(i * ROW + j, (i + 1) * ROW + j);
+for (let i = 0; i < NU; i += 4) for (let j = 0; j < NV; j++) lineIdx.push(i * ROW + j, i * ROW + j + 1);
+
+const meshGeo = new THREE.BufferGeometry();
+meshGeo.setAttribute('position', posAttr);
+meshGeo.setAttribute('color', colAttr);
+meshGeo.setIndex(new THREE.BufferAttribute(new Uint32Array(triIdx), 1));
+
+const lineGeo = new THREE.BufferGeometry();
+lineGeo.setAttribute('position', posAttr);
+lineGeo.setAttribute('color', colAttr);
+lineGeo.setIndex(new THREE.BufferAttribute(new Uint32Array(lineIdx), 1));
+
+const meshMat = new THREE.MeshStandardMaterial({
+  vertexColors: true, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.05,
+});
+const lineMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 });
+
+const mesh = new THREE.Mesh(meshGeo, meshMat);
+const lines = new THREE.LineSegments(lineGeo, lineMat);
+mesh.frustumCulled = lines.frustumCulled = false;
+mesh.renderOrder = 1; lines.renderOrder = 2;
+scene.add(mesh, lines);
+
+// 4D axes: each basis vector e_i is rotated and projected through the same pipeline
+const labelsEl = document.getElementById('labels');
+const axisObjs = AXIS_NAMES.map((name, i) => {
+  const g = new THREE.BufferGeometry();
+  const p = new THREE.BufferAttribute(new Float32Array(6), 3).setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute('position', p);
+  const c = new THREE.Color(AXIS_COLORS[i]), cd = c.clone().multiplyScalar(0.18);
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array([cd.r, cd.g, cd.b, c.r, c.g, c.b]), 3));
+  const line = new THREE.Line(g, new THREE.LineBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0.9, depthTest: false,
+  }));
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.04, 14, 10),
+    new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true }));
+  line.frustumCulled = false;
+  line.renderOrder = tip.renderOrder = 10;
+  scene.add(line, tip);
+  const label = document.createElement('div');
+  label.className = 'axis-label';
+  label.textContent = name;
+  label.style.color = AXIS_COLORS[i];
+  labelsEl.appendChild(label);
+  return { line, tip, label, pos: p };
+});
+
+/* ------------------------------------------------------------------ *
+ *  Per-frame updates
+ * ------------------------------------------------------------------ */
+function updateSurface(M) {
+  for (let n = 0; n < VCOUNT; n++) {
+    const b = n * 4;
+    rotateInto(M, base[b], base[b + 1], base[b + 2], base[b + 3]);
+    const rx = P4[0], ry = P4[1], rz = P4[2], rw = P4[3];
+    project();
+    const o = n * 3;
+    positions[o] = OUT[0]; positions[o + 1] = OUT[1]; positions[o + 2] = OUT[2];
+    // color from 4D position: XYZ → RGB, W → brightness
+    const wn = clamp01(rw / EXT * 0.5 + 0.5);
+    const br = 0.08 + 0.92 * wn * wn;
+    colors[o]     = (0.12 + 0.88 * clamp01(rx / EXT * 0.5 + 0.5)) * br;
+    colors[o + 1] = (0.12 + 0.88 * clamp01(ry / EXT * 0.5 + 0.5)) * br;
+    colors[o + 2] = (0.12 + 0.88 * clamp01(rz / EXT * 0.5 + 0.5)) * br;
+  }
+  posAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+  if (mesh.visible) meshGeo.computeVertexNormals();
+}
+
+function updateAxes(M) {
+  for (let i = 0; i < 4; i++) {
+    const ax = axisObjs[i], show = state.vis[i];
+    ax.line.visible = ax.tip.visible = show;
+    if (!show) continue;
+    // keep the positive-w end safely in front of the projection hyperplane w = D
+    const mw = Math.abs(M[12 + i]);
+    const L = mw > 1e-6 ? Math.min(1.9, (state.D - 0.6) / mw) : 1.9;
+    const arr = ax.pos.array;
+    for (let k = 0; k < 4; k++) P4[k] = -L * M[k * 4 + i];
+    project(); arr[0] = OUT[0]; arr[1] = OUT[1]; arr[2] = OUT[2];
+    for (let k = 0; k < 4; k++) P4[k] = L * M[k * 4 + i];
+    project(); arr[3] = OUT[0]; arr[4] = OUT[1]; arr[5] = OUT[2];
+    ax.pos.needsUpdate = true;
+    ax.tip.position.set(OUT[0], OUT[1], OUT[2]);
+  }
+}
+
+const tmpV = new THREE.Vector3(), camPos = new THREE.Vector3(), fwd = new THREE.Vector3(), up = new THREE.Vector3();
+
+function updateFirstPersonCamera(M, dt) {
+  // Ride along the tube's core curve (r = 0). Period 4π so the cross-section frame is continuous
+  // across the Klein bottle's orientation-reversing seam.
+  if (!fp.paused) fp.t = (fp.t + dt * fp.speed) % (2 * TAU);
+  const t = fp.t, ct = Math.cos(t), st = Math.sin(t);
+
+  rotateInto(M, R_MAJOR * ct, R_MAJOR * st, 0, 0); project();
+  camPos.set(OUT[0], OUT[1], OUT[2]);
+
+  const t2 = t + 0.08;
+  rotateInto(M, R_MAJOR * Math.cos(t2), R_MAJOR * Math.sin(t2), 0, 0); project();
+  fwd.set(OUT[0], OUT[1], OUT[2]).sub(camPos);
+
+  rotateInto(M, R_MAJOR * ct, R_MAJOR * st, 0.25 * Math.cos(t / 2), 0.25 * Math.sin(t / 2)); project();
+  up.set(OUT[0], OUT[1], OUT[2]).sub(camPos);
+
+  if (fwd.lengthSq() < 1e-12) fwd.set(0, 0, -1);
+  fwd.normalize();
+  up.addScaledVector(fwd, -up.dot(fwd));
+  if (up.lengthSq() < 1e-10) { up.set(0, 1, 0); if (Math.abs(fwd.y) > 0.99) up.set(1, 0, 0); }
+  up.normalize();
+
+  camera.position.copy(camPos);
+  camera.up.copy(up);
+  camera.lookAt(tmpV.copy(camPos).add(fwd));
+  camera.rotateY(fp.yaw);
+  camera.rotateX(fp.pitch);
+}
+
+function updateOrbitCamera() {
+  const sp = Math.sin(orbit.phi);
+  camera.position.set(
+    orbit.radius * sp * Math.sin(orbit.theta),
+    orbit.radius * Math.cos(orbit.phi),
+    orbit.radius * sp * Math.cos(orbit.theta));
+  camera.up.set(0, 1, 0);
+  camera.lookAt(0, 0, 0);
+}
+
+function updateLabels() {
+  const w = innerWidth, h = innerHeight;
+  for (let i = 0; i < 4; i++) {
+    const ax = axisObjs[i];
+    if (!state.vis[i]) { ax.label.style.display = 'none'; continue; }
+    tmpV.copy(ax.tip.position).project(camera);
+    if (tmpV.z < -1 || tmpV.z > 1 || Math.abs(tmpV.x) > 1.2 || Math.abs(tmpV.y) > 1.2) {
+      ax.label.style.display = 'none'; continue;
+    }
+    ax.label.style.display = 'block';
+    ax.label.style.left = ((tmpV.x * 0.5 + 0.5) * w).toFixed(1) + 'px';
+    ax.label.style.top = ((-tmpV.y * 0.5 + 0.5) * h).toFixed(1) + 'px';
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  UI
+ * ------------------------------------------------------------------ */
+const $ = id => document.getElementById(id);
+const panel = $('panel');
+const autoEl = $('auto'), distEl = $('dist'), speedEl = $('speed');
+
+// axis checkboxes
+const axisChecks = AXIS_NAMES.map((name, i) => {
+  const lab = document.createElement('label');
+  lab.className = 'ax';
+  lab.style.color = AXIS_COLORS[i];
+  lab.innerHTML = `<input type="checkbox"> ${name}`;
+  const cb = lab.querySelector('input');
+  cb.addEventListener('change', () => { state.vis[i] = cb.checked; onVisibilityChange(); });
+  $('axes').appendChild(lab);
+  return { cb, lab };
+});
+
+// angle sliders
+const angleEls = PLANE_NAMES.map((name, i) => {
+  const row = document.createElement('div');
+  row.className = 'angle';
+  row.innerHTML = `<span>${name}</span><input type="range" min="${-Math.PI}" max="${Math.PI}" step="0.001"><output></output>`;
+  const input = row.querySelector('input'), out = row.querySelector('output');
+  input.addEventListener('input', () => { state.angles[i] = parseFloat(input.value); });
+  $('angles').appendChild(row);
+  return { input, out };
+});
+
+document.querySelectorAll('.seg').forEach(seg => {
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    state[seg.dataset.group] = b.dataset.v;
+    applyView(); applyRender(); syncUI();
+  });
+});
+
+autoEl.addEventListener('change', () => { state.auto = autoEl.checked; });
+distEl.addEventListener('input', () => { state.D = parseFloat(distEl.value); syncUI(); });
+speedEl.addEventListener('input', () => { fp.speed = parseFloat(speedEl.value); syncUI(); });
+$('reset').addEventListener('click', reset);
+$('collapse').addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+  $('collapse').textContent = panel.classList.contains('collapsed') ? '+' : '–';
+});
+
+function onVisibilityChange() {
+  const next = computeConfig(state.vis);
+  cfgPrev = cfgCur; cfgCur = next; morph = 0;
+  syncUI();
+}
+
+function describeProjection() {
+  const v = state.vis, c = cfgCur;
+  const disp = c.slots.map(s => (s < 0 ? '0' : AXIS_NAMES[s])).join(', ');
+  const hiddenCount = v.filter(x => !x).length;
+  if (c.perspective) return `<b>Perspective 4D → 3D</b> along W.<br>Display = (x, y, z) · D/(D − w)`;
+  if (hiddenCount === 4) return `<b>All dimensions hidden</b> — everything collapses to a point.`;
+  if (!v[3]) {
+    return hiddenCount === 1
+      ? `<b>W hidden → orthographic XYZ</b> (w simply dropped).<br>Display = (${disp})`
+      : `<b>W hidden</b>, plus ${hiddenCount - 1} spatial axis — flattened.<br>Display = (${disp})`;
+  }
+  return `<b>Re-projected remaining dimensions</b> (orthographic).<br>Display = (${disp})` +
+    (hiddenCount > 1 ? ' — flattened' : '');
+}
+
+function syncUI() {
+  document.querySelectorAll('.seg').forEach(seg => {
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === state[seg.dataset.group]));
+  });
+  autoEl.checked = state.auto;
+  distEl.value = state.D;
+  $('dVal').textContent = state.D.toFixed(2);
+  speedEl.value = fp.speed;
+  $('spdVal').textContent = fp.speed.toFixed(2);
+  $('fpOpts').style.display = state.view === 'first' ? '' : 'none';
+  axisChecks.forEach(({ cb, lab }, i) => { cb.checked = state.vis[i]; lab.classList.toggle('off', !state.vis[i]); });
+  $('projMode').innerHTML = describeProjection();
+  distEl.disabled = !cfgCur.perspective;
+}
+
+function syncAngleSliders() {
+  angleEls.forEach(({ input, out }, i) => {
+    if (!input.matches(':active')) input.value = state.angles[i];
+    out.textContent = Math.round(state.angles[i] * 180 / Math.PI) + '°';
+  });
+}
+
+function applyRender() {
+  const m = state.render;
+  mesh.visible = m !== 'wire';
+  lines.visible = m !== 'solid';
+  if (m === 'trans') {
+    meshMat.transparent = true; meshMat.opacity = 0.36; meshMat.depthWrite = false;
+    lineMat.opacity = 0.28;
+  } else {
+    meshMat.transparent = false; meshMat.opacity = 1; meshMat.depthWrite = true;
+    lineMat.opacity = 0.95;
+  }
+  meshMat.needsUpdate = true;
+}
+
+function applyView() {
+  camera.fov = state.view === 'first' ? fp.fov : 50;
+  camera.updateProjectionMatrix();
+}
+
+function reset() {
+  Object.assign(state, structuredClone(DEFAULTS));
+  Object.assign(orbit, ORBIT_DEFAULT);
+  Object.assign(fp, FP_DEFAULT);
+  cfgPrev = cfgCur; cfgCur = computeConfig(state.vis); morph = 0;
+  applyView(); applyRender(); syncUI(); syncAngleSliders();
+}
+
+/* ------------------------------------------------------------------ *
+ *  Mouse / keyboard
+ * ------------------------------------------------------------------ */
+let drag = null;
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  canvas.setPointerCapture(e.pointerId);
+  const rot4 = e.button === 2 || (e.button === 0 && e.shiftKey);
+  drag = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: rot4 ? '4d' : 'orbit' };
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.mode === '4d') {
+    const k = 0.008;
+    if (e.ctrlKey || e.altKey) {
+      state.angles[ZW] = wrapAngle(state.angles[ZW] + dx * k);
+    } else {
+      state.angles[XW] = wrapAngle(state.angles[XW] + dx * k);
+      state.angles[YW] = wrapAngle(state.angles[YW] + dy * k);
+    }
+  } else if (state.view === 'third') {
+    orbit.theta -= dx * 0.006;
+    orbit.phi = Math.min(Math.PI - 0.05, Math.max(0.05, orbit.phi - dy * 0.006));
+  } else {
+    fp.yaw -= dx * 0.004;
+    fp.pitch = Math.min(1.45, Math.max(-1.45, fp.pitch - dy * 0.004));
+  }
+});
+const endDrag = e => { if (drag && e.pointerId === drag.id) drag = null; };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (state.view === 'third') {
+    orbit.radius = Math.min(30, Math.max(1.2, orbit.radius * Math.exp(e.deltaY * 0.0012)));
+  } else {
+    fp.fov = Math.min(150, Math.max(35, fp.fov + e.deltaY * 0.05));
+    applyView();
+  }
+}, { passive: false });
+
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+  if (e.code === 'Space') { fp.paused = !fp.paused; e.preventDefault(); }
+  if (e.key === 'v' || e.key === 'V') {
+    state.view = state.view === 'first' ? 'third' : 'first';
+    applyView(); syncUI();
+  }
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ------------------------------------------------------------------ *
+ *  Main loop
+ * ------------------------------------------------------------------ */
+const hud = $('hud');
+const clock = new THREE.Clock();
+let uiTimer = 0;
+
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.1);
+
+  if (state.auto) {
+    state.angles[XW] = wrapAngle(state.angles[XW] + dt * 0.27);
+    state.angles[YW] = wrapAngle(state.angles[YW] + dt * 0.16);
+    state.angles[ZW] = wrapAngle(state.angles[ZW] + dt * 0.10);
+  }
+  if (morph < 1) morph = Math.min(1, morph + dt / MORPH_TIME);
+
+  const M = buildMatrix(state.angles);
+  updateSurface(M);
+  updateAxes(M);
+  if (state.view === 'first') updateFirstPersonCamera(M, dt); else updateOrbitCamera();
+
+  renderer.render(scene, camera);
+  updateLabels();
+
+  uiTimer += dt;
+  if (uiTimer > 0.05) {
+    uiTimer = 0;
+    syncAngleSliders();
+    hud.textContent = state.view === 'first'
+      ? `first-person · fov ${fp.fov.toFixed(0)}° · u = ${((fp.t % TAU) / Math.PI).toFixed(2)}π${fp.paused ? ' · paused' : ''}`
+      : `third-person · distance ${orbit.radius.toFixed(2)}`;
+  }
+  requestAnimationFrame(frame);
+}
+
+applyView(); applyRender(); syncUI(); syncAngleSliders();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
