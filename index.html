@@ -126,6 +126,7 @@
   <div class="section" id="fpOpts">
     <div class="label">Fly-through speed <span id="spdVal"></span></div>
     <input type="range" id="speed" min="0" max="1.5" step="0.01">
+    <div class="formula">Moves only while Auto 4D rotation is on · ↑/↓ move manually</div>
   </div>
 
   <div class="section">
@@ -142,7 +143,8 @@
     <div><kbd>Right drag</kbd> / <kbd>Shift</kbd>+drag: rotate in 4D — horizontal XW, vertical YW</div>
     <div>…with <kbd>Ctrl</kbd>/<kbd>Alt</kbd> held: horizontal ZW</div>
     <div><kbd>Wheel</kbd> zoom (field of view in first-person)</div>
-    <div><kbd>Space</kbd> pause fly-through &nbsp; <kbd>V</kbd> switch view</div>
+    <div><kbd>Space</kbd> pause fly-through &nbsp; <kbd>↑</kbd>/<kbd>↓</kbd> move along tube (first-person)</div>
+    <div><kbd>V</kbd> switch view</div>
   </div>
 </div>
 
@@ -406,7 +408,11 @@ const tmpV = new THREE.Vector3(), camPos = new THREE.Vector3(), fwd = new THREE.
 function updateFirstPersonCamera(M, dt) {
   // Ride along the tube's core curve (r = 0). Period 4π so the cross-section frame is continuous
   // across the Klein bottle's orientation-reversing seam.
-  if (!fp.paused) fp.t = (fp.t + dt * fp.speed) % (2 * TAU);
+  // automatic fly-through only while auto rotation is on; arrow keys move manually at any time
+  const manual = (keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0);
+  const auto = state.auto && !fp.paused ? fp.speed : 0;
+  const period = 2 * TAU;
+  fp.t = (((fp.t + dt * (auto + manual * 0.6)) % period) + period) % period;
   const t = fp.t, ct = Math.cos(t), st = Math.sin(t);
 
   rotateInto(M, R_MAJOR * ct, R_MAJOR * st, 0, 0); project();
@@ -448,231 +454,5 @@ function updateLabels() {
     const ax = axisObjs[i];
     if (!state.vis[i]) { ax.label.style.display = 'none'; continue; }
     tmpV.copy(ax.tip.position).project(camera);
-    if (tmpV.z < -1 || tmpV.z > 1 || Math.abs(tmpV.x) > 1.2 || Math.abs(tmpV.y) > 1.2) {
-      ax.label.style.display = 'none'; continue;
-    }
-    ax.label.style.display = 'block';
-    ax.label.style.left = ((tmpV.x * 0.5 + 0.5) * w).toFixed(1) + 'px';
-    ax.label.style.top = ((-tmpV.y * 0.5 + 0.5) * h).toFixed(1) + 'px';
-  }
-}
-
-/* ------------------------------------------------------------------ *
- *  UI
- * ------------------------------------------------------------------ */
-const $ = id => document.getElementById(id);
-const panel = $('panel');
-const autoEl = $('auto'), distEl = $('dist'), speedEl = $('speed');
-
-// axis checkboxes
-const axisChecks = AXIS_NAMES.map((name, i) => {
-  const lab = document.createElement('label');
-  lab.className = 'ax';
-  lab.style.color = AXIS_COLORS[i];
-  lab.innerHTML = `<input type="checkbox"> ${name}`;
-  const cb = lab.querySelector('input');
-  cb.addEventListener('change', () => { state.vis[i] = cb.checked; onVisibilityChange(); });
-  $('axes').appendChild(lab);
-  return { cb, lab };
-});
-
-// angle sliders
-const angleEls = PLANE_NAMES.map((name, i) => {
-  const row = document.createElement('div');
-  row.className = 'angle';
-  row.innerHTML = `<span>${name}</span><input type="range" min="${-Math.PI}" max="${Math.PI}" step="0.001"><output></output>`;
-  const input = row.querySelector('input'), out = row.querySelector('output');
-  input.addEventListener('input', () => { state.angles[i] = parseFloat(input.value); });
-  $('angles').appendChild(row);
-  return { input, out };
-});
-
-document.querySelectorAll('.seg').forEach(seg => {
-  seg.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    state[seg.dataset.group] = b.dataset.v;
-    applyView(); applyRender(); syncUI();
-  });
-});
-
-autoEl.addEventListener('change', () => { state.auto = autoEl.checked; });
-distEl.addEventListener('input', () => { state.D = parseFloat(distEl.value); syncUI(); });
-speedEl.addEventListener('input', () => { fp.speed = parseFloat(speedEl.value); syncUI(); });
-$('reset').addEventListener('click', reset);
-$('collapse').addEventListener('click', () => {
-  panel.classList.toggle('collapsed');
-  $('collapse').textContent = panel.classList.contains('collapsed') ? '+' : '–';
-});
-
-function onVisibilityChange() {
-  const next = computeConfig(state.vis);
-  cfgPrev = cfgCur; cfgCur = next; morph = 0;
-  syncUI();
-}
-
-function describeProjection() {
-  const v = state.vis, c = cfgCur;
-  const disp = c.slots.map(s => (s < 0 ? '0' : AXIS_NAMES[s])).join(', ');
-  const hiddenCount = v.filter(x => !x).length;
-  if (c.perspective) return `<b>Perspective 4D → 3D</b> along W.<br>Display = (x, y, z) · D/(D − w)`;
-  if (hiddenCount === 4) return `<b>All dimensions hidden</b> — everything collapses to a point.`;
-  if (!v[3]) {
-    return hiddenCount === 1
-      ? `<b>W hidden → orthographic XYZ</b> (w simply dropped).<br>Display = (${disp})`
-      : `<b>W hidden</b>, plus ${hiddenCount - 1} spatial axis — flattened.<br>Display = (${disp})`;
-  }
-  return `<b>Re-projected remaining dimensions</b> (orthographic).<br>Display = (${disp})` +
-    (hiddenCount > 1 ? ' — flattened' : '');
-}
-
-function syncUI() {
-  document.querySelectorAll('.seg').forEach(seg => {
-    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === state[seg.dataset.group]));
-  });
-  autoEl.checked = state.auto;
-  distEl.value = state.D;
-  $('dVal').textContent = state.D.toFixed(2);
-  speedEl.value = fp.speed;
-  $('spdVal').textContent = fp.speed.toFixed(2);
-  $('fpOpts').style.display = state.view === 'first' ? '' : 'none';
-  axisChecks.forEach(({ cb, lab }, i) => { cb.checked = state.vis[i]; lab.classList.toggle('off', !state.vis[i]); });
-  $('projMode').innerHTML = describeProjection();
-  distEl.disabled = !cfgCur.perspective;
-}
-
-function syncAngleSliders() {
-  angleEls.forEach(({ input, out }, i) => {
-    if (!input.matches(':active')) input.value = state.angles[i];
-    out.textContent = Math.round(state.angles[i] * 180 / Math.PI) + '°';
-  });
-}
-
-function applyRender() {
-  const m = state.render;
-  mesh.visible = m !== 'wire';
-  lines.visible = m !== 'solid';
-  if (m === 'trans') {
-    meshMat.transparent = true; meshMat.opacity = 0.36; meshMat.depthWrite = false;
-    lineMat.opacity = 0.28;
-  } else {
-    meshMat.transparent = false; meshMat.opacity = 1; meshMat.depthWrite = true;
-    lineMat.opacity = 0.95;
-  }
-  meshMat.needsUpdate = true;
-}
-
-function applyView() {
-  camera.fov = state.view === 'first' ? fp.fov : 50;
-  camera.updateProjectionMatrix();
-}
-
-function reset() {
-  Object.assign(state, structuredClone(DEFAULTS));
-  Object.assign(orbit, ORBIT_DEFAULT);
-  Object.assign(fp, FP_DEFAULT);
-  cfgPrev = cfgCur; cfgCur = computeConfig(state.vis); morph = 0;
-  applyView(); applyRender(); syncUI(); syncAngleSliders();
-}
-
-/* ------------------------------------------------------------------ *
- *  Mouse / keyboard
- * ------------------------------------------------------------------ */
-let drag = null;
-canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('pointerdown', e => {
-  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-  canvas.setPointerCapture(e.pointerId);
-  const rot4 = e.button === 2 || (e.button === 0 && e.shiftKey);
-  drag = { id: e.pointerId, x: e.clientX, y: e.clientY, mode: rot4 ? '4d' : 'orbit' };
-});
-canvas.addEventListener('pointermove', e => {
-  if (!drag || e.pointerId !== drag.id) return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  drag.x = e.clientX; drag.y = e.clientY;
-  if (drag.mode === '4d') {
-    const k = 0.008;
-    if (e.ctrlKey || e.altKey) {
-      state.angles[ZW] = wrapAngle(state.angles[ZW] + dx * k);
-    } else {
-      state.angles[XW] = wrapAngle(state.angles[XW] + dx * k);
-      state.angles[YW] = wrapAngle(state.angles[YW] + dy * k);
-    }
-  } else if (state.view === 'third') {
-    orbit.theta -= dx * 0.006;
-    orbit.phi = Math.min(Math.PI - 0.05, Math.max(0.05, orbit.phi - dy * 0.006));
-  } else {
-    fp.yaw -= dx * 0.004;
-    fp.pitch = Math.min(1.45, Math.max(-1.45, fp.pitch - dy * 0.004));
-  }
-});
-const endDrag = e => { if (drag && e.pointerId === drag.id) drag = null; };
-canvas.addEventListener('pointerup', endDrag);
-canvas.addEventListener('pointercancel', endDrag);
-
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  if (state.view === 'third') {
-    orbit.radius = Math.min(30, Math.max(1.2, orbit.radius * Math.exp(e.deltaY * 0.0012)));
-  } else {
-    fp.fov = Math.min(150, Math.max(35, fp.fov + e.deltaY * 0.05));
-    applyView();
-  }
-}, { passive: false });
-
-addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-  if (e.code === 'Space') { fp.paused = !fp.paused; e.preventDefault(); }
-  if (e.key === 'v' || e.key === 'V') {
-    state.view = state.view === 'first' ? 'third' : 'first';
-    applyView(); syncUI();
-  }
-});
-
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-
-/* ------------------------------------------------------------------ *
- *  Main loop
- * ------------------------------------------------------------------ */
-const hud = $('hud');
-const clock = new THREE.Clock();
-let uiTimer = 0;
-
-function frame() {
-  const dt = Math.min(clock.getDelta(), 0.1);
-
-  if (state.auto) {
-    state.angles[XW] = wrapAngle(state.angles[XW] + dt * 0.27);
-    state.angles[YW] = wrapAngle(state.angles[YW] + dt * 0.16);
-    state.angles[ZW] = wrapAngle(state.angles[ZW] + dt * 0.10);
-  }
-  if (morph < 1) morph = Math.min(1, morph + dt / MORPH_TIME);
-
-  const M = buildMatrix(state.angles);
-  updateSurface(M);
-  updateAxes(M);
-  if (state.view === 'first') updateFirstPersonCamera(M, dt); else updateOrbitCamera();
-
-  renderer.render(scene, camera);
-  updateLabels();
-
-  uiTimer += dt;
-  if (uiTimer > 0.05) {
-    uiTimer = 0;
-    syncAngleSliders();
-    hud.textContent = state.view === 'first'
-      ? `first-person · fov ${fp.fov.toFixed(0)}° · u = ${((fp.t % TAU) / Math.PI).toFixed(2)}π${fp.paused ? ' · paused' : ''}`
-      : `third-person · distance ${orbit.radius.toFixed(2)}`;
-  }
-  requestAnimationFrame(frame);
-}
-
-applyView(); applyRender(); syncUI(); syncAngleSliders();
-requestAnimationFrame(frame);
-</script>
-</body>
-</html>
+    if (tmpV.z < -1 || tmpV.z > 1 || Math.abs(tmpV.x) > 1.2 || Math.abs(tmp.y) > 1.2) {
+    
